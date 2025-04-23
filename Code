@@ -1,0 +1,161 @@
+# Load librarys 
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy import stats
+import sklearn
+import warnings
+import seaborn as sns
+import numpy as np
+
+
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, precision_recall_curve, auc
+from sklearn.model_selection import cross_val_score, KFold
+from sklearn.inspection import permutation_importance
+
+#load in data with features
+features_df = pd.read_csv('FILE_NAME')
+print(features_df.head())
+print(features_df.describe())
+print(features_df.isna().sum())
+
+#Load in class dataframe
+class_df = pd.read_csv('FILE_NAME')
+print(class_df.head())
+print(class_df.describe())
+print(class_df.isna().sum())
+
+#load in dataframe with predictions
+predictions_df = pd.read_csv('FILE_NAME')
+print(predictions_df.head())
+print(predictions_df.describe())
+print(predictions_df.isna().sum())
+
+#Extract features and target
+X = features_df.iloc[:,1:11].values  
+y = class_df.iloc[:,1].values
+
+feature_names = features_df.columns[1:]
+feature_names_list = features_df.columns[1:].tolist()
+
+#Iterate through each test size to identify the most accurate model
+test_size_accuracy_rf = []
+
+for test_size in np.arange(0.2, 0.4, 0.01):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+    rf_model = RandomForestClassifier(n_estimators=1000, max_depth=10, random_state=42)
+    rf_model.fit(X_train, y_train)
+
+    #calculate the accuracy of the model using the test sample
+    accuracy_rf = accuracy_score(y_test, rf_model.predict(X_test)) * 100
+
+
+    #calculate the accuracy of the model on the training sample - test for overfitting.
+    accuracy_2_rf = accuracy_score(y_train, rf_model.predict(X_train)) * 100
+    
+    test_size_accuracy_rf.append({
+        'Test_Size': round(test_size, 2),
+        'Test_Sample_Accuracy': accuracy_rf,
+        'Training_Sample_Accuracy': accuracy_2_rf,
+    })
+
+test_size_accuracy_rf_df = pd.DataFrame(test_size_accuracy_rf)
+
+best_test_rf_size = test_size_accuracy_rf_df.loc[test_size_accuracy_rf_df['Test_Sample_Accuracy'].abs().idxmax()]
+
+print(f"Random Forest model accuracy: {best_test_rf_size['Test_Sample_Accuracy']:.2f}%")
+print(f"Random Forest model accuracy on training: {best_test_rf_size['Training_Sample_Accuracy']:.2f}%")
+
+plt.figure(figsize=(10, 6))
+plt.bar(test_size_accuracy_rf_df['Test_Size'], test_size_accuracy_rf_df['Test_Sample_Accuracy'], width= 0.005)
+plt.xlabel('Test Size')
+plt.ylabel('Test Sample Accuracy')
+plt.title('Model Accuracy at different splits')
+plt.xticks(test_size_accuracy_rf_df['Test_Size'])
+plt.ylim(60, 100)
+plt.axhline(y=test_size_accuracy_rf_df['Test_Sample_Accuracy'].max(), color='r', linestyle='-')
+
+#Train random forest model and test it on the test data.
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.34, random_state=42)
+rf_model = RandomForestClassifier(n_estimators=1000, max_depth=10, random_state=42)
+rf_model.fit(X_train, y_train)
+
+y_pred = rf_model.predict(X_test)
+
+accuracy = accuracy_score(y_test, y_pred)
+classification_rep = classification_report(y_test, y_pred)
+
+print(f"Accuracy: {accuracy:.2f}")
+print("\nClassification Report:\n", classification_rep)
+
+# Sample prediction
+sample_rf = X_test[0:1] 
+prediction_rf = rf_model.predict(sample)
+
+# Retrieve and display the sample
+sample_dict = {feature_names_list[feature]: sample[0, feature] for feature in range(sample.shape[1])}
+print(f"\nSample: {sample_dict}")
+print(f"Prediction: {'1' if prediction[0] == 1 else '0'}")
+
+#Confusion matrix to determine the number of false postives and false negatives
+conf_matrix_rf = confusion_matrix(y_test, y_pred)
+
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix_rf, annot=True, fmt='g', cmap='Blues', cbar=False)
+
+plt.title('Confusion Matrix Heatmap')
+plt.xlabel('Predicted Labels')
+plt.ylabel('True Labels')
+plt.show()
+
+#feature importance to determine which feature contributes the most to a postive classification
+feature_importances_rf = rf_model.feature_importances_
+
+plt.barh(feature_names, feature_importances_rf)
+plt.xlabel('Feature Importance')
+plt.title('Feature Importance in Random Forest Classifier')
+
+#Predictions made using model
+predictions_rf = rf_model.predict(predictions_df.iloc[:, 1:])
+
+probabilities_rf = rf_model.predict_proba(predictions_df.iloc[:, 1:])
+
+positive_class_probabilities_rf = probabilities_rf[:, 1]
+
+results_rf_df = pd.DataFrame({
+    'Predictions': predictions_rf,
+    'Probability': positive_class_probabilities_rf
+}, index= range(1, 21))
+
+print(results_rf_df)
+
+#idfentify the precision and recall values
+y_scores_rf = rf_model.predict_proba(X_test)[:, 1]
+precision_rf, recall_rf, thresholds_rf = precision_recall_curve(y_test, y_scores_rf)
+auc_score_rf = auc(recall_rf, precision_rf)
+
+plt.figure(figsize=(8, 6))
+plt.plot(recall_rf, precision_rf, label=f'Precision-Recall Curve (AUC = {auc_score_rf:.2f})')
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall Curve')
+plt.legend()
+plt.show()
+
+
+#Cross validation
+rf_classifier = RandomForestClassifier()
+
+num_folds = 5
+kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
+
+cross_val_rf_results = cross_val_score(rf_classifier, X, y, cv=kf)
+
+print("Cross-Validation Results (Accuracy):")
+for i, result in enumerate(cross_val_rf_results, 1):
+    print(f" Fold {i}: {result * 100:.2f}%")
+    
+print(f'Mean Accuracy: {cross_val_rf_results.mean()* 100:.2f}%')
+
+
